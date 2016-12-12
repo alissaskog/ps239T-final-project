@@ -1,0 +1,37 @@
+---
+title: "Untitled"
+author: "Alissa Skog"
+date: "December 11, 2016"
+output: html_document
+---
+
+```{r}
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(dplyr)
+
+
+##  Simplify Text for recidivism crimes-- Often, one would want to stem the words used (to take down to the root), but using it resulted in strange words (i.e. Battery was turned into batteri)
+recidCorpus <- Corpus(VectorSource(c(risk$r_crime))) 
+dtm_r <- DocumentTermMatrix(c(recidCorpus),
+           control = list(tolower = TRUE,
+                          removePunctuation = TRUE,
+                          removeNumbers = TRUE,
+                          stopwords = TRUE))
+
+## Determine the most frequent words
+freq_r <- colSums(as.matrix(dtm_r))
+ord_r <- order(freq_r)
+freq_r[tail(ord_r)]
+
+freq_r <- sort(colSums(as.matrix(dtm_r)),decreasing=TRUE)
+head(freq_r)
+
+##Create a Word Cloud
+set.seed(190)
+wordcloud(names(freq_r), freq_r, min.freq = 30, max.words=100, colors=brewer.pal(6,"Dark2"))
+
+
+
+```

@@ -1,0 +1,120 @@
+---
+title: "Final Project: Data Cleaning"
+author: "Alissa Skog"
+date: "November 28, 2016"
+output: html_document
+---
+
+```{r}
+
+##  Set Directory
+setwd( "/Users/alissaskog/Dropbox/UC_Berkeley/PS239T/Final Project/")
+
+##  load packages
+library(dplyr)
+library(tidyr)
+
+## read in two data sets
+i_s <- read.csv("COMPAS_initial_screen.csv", stringsAsFactors = FALSE, header = TRUE)
+r_s <- read.csv("COMPAS_recidivism.csv", stringsAsFactors = FALSE, header = TRUE)
+
+## merge two dataframes
+risk <- merge(i_s, r_s, by=c("dob", "name"))
+
+## Chage date format so I can caldulate distance
+## For consistency, any variable that begins with 'c' will reflect the original charge; and 'r' will reflect the recidivism event
+risk$c_offense_date <- as.Date(risk$c_offense_date, "%m/%d/%y")
+risk$r_arrest <- as.Date(risk$r_arrest, "%m/%d/%y")
+risk$compas_screening_date <- as.Date(risk$compas_screening_date, "%m/%d/%y")
+risk$c_jail_in <- as.Date(risk$c_jail_in, "%m/%d/%y")
+risk$c_jail_out <- as.Date(risk$c_jail_out, "%m/%d/%y")
+risk$r_jail_in <- as.Date(risk$r_jail_in, "%m/%d/%y")
+risk$r_jail_out <- as.Date(risk$r_jail_out, "%m/%d/%y")
+
+## Drop those without an initial risk score because this will be an important control in subsequent analysis.
+risk$c_time_to_screen <- risk$compas_screening_date - risk$c_offense_date
+sum(is.na(risk$c_time_to_screen))  ## 1159 did not have screen upon initial arrst; drop those who were not screened for risk.
+risk <- risk[Reduce("&", data.frame(!sapply(risk$c_time_to_screen, is.na))),]
+
+##   Create a dummy variable to indicate if someone recidivated or not. Turn all NAs into zero.
+risk$time_to_recid <- risk$r_arrest - risk$c_jail_out
+
+na.zero <- function(x) {     ## Create a function to turn NAs to zero 
+  x[is.na(x)] <- 0
+  return(x)
+}
+risk$time_to_recid <- na.zero(risk$time_to_recid) ## Replace NAs with zero
+risk$recid <- as.numeric(risk$time_to_recid >0)  #dummy variable
+
+##Categorize crimes into specific types, both original crime and recidivism crime
+risk$c_charge_desc <- tolower(risk$c_charge_desc)
+risk$r_crime <- tolower(risk$r_crime)
+                                  
+risk$crimetype_c <- ifelse(grepl("(batt)", risk$c_charge_desc), "Battery",
+                         ifelse(grepl("(assault)", risk$c_charge_desc), "Assault",
+                                ifelse(grepl("(pos|drug|cannabis|grams)", risk$c_charge_desc), "Drug",
+                                             ifelse(grepl("(robbery|theft)", risk$c_charge_desc), "Robb./Theft",
+                                                    ifelse(grepl("(dui|driving)", risk$c_charge_desc), "DUI", 
+                                                           ifelse(grepl("(sex|prost)", risk$c_charge_desc), "Sex",
+                                                                  ifelse(grepl("(chi)", risk$c_charge_desc), "Child Assault",
+                                                                         ifelse(grepl("(lic|sus)", risk$c_charge_desc), "Susp.",
+                                                                                ifelse(grepl("(burg)", risk$c_charge_desc), "Burg", "Other")))))))))
+                                       
+  
+      
+risk$crimetype_r <- ifelse(grepl("(batt)", risk$r_crime), "Battery",
+                         ifelse(grepl("(assault)", risk$r_crime), "Assault",
+                                ifelse(grepl("(pos|drug|cannabis|grams)", risk$r_crime), "Drug",
+                                             ifelse(grepl("(robbery|theft)", risk$r_crime), "Robb./Theft",
+                                                    ifelse(grepl("(dui|driving)", risk$r_crime), "DUI", 
+                                                           ifelse(grepl("(sex|prost)", risk$r_crime), "Sex",
+                                                                  ifelse(grepl("(chi)", risk$r_crime), "Child Assault",
+                                                                         ifelse(grepl("(burg)", risk$r_crime), "Burglary",
+                                                                                ifelse(grepl("(lic|sus)", risk$r_crime), "Susp.",
+                                                                                       ifelse(grepl("0", risk$recid), "NA", "Other"))))))))))
+                                       
+## Create Age, Risk, and Violent Risk Categories
+
+attach(risk)
+risk$agecat[age >=50] <- "50+"
+risk$agecat[age >= 40 & age <50] <- "40-50"
+risk$agecat[age >=30 & age <40] <- "30-40"
+risk$agecat[age >=26 & age <30] <- "26-30"
+risk$agecat[age >=18 & age <26] <- "18-26"
+risk$agecat[age < 18] <- "Under 18"
+risk$riskcat[decile_score >= 1 & decile_score <=3] <- "LOW"
+risk$riskcat[decile_score >= 4 & decile_score <=7] <- "MEDIUM"
+risk$riskcat[decile_score >= 8 & decile_score <=10] <- "HIGH"
+risk$riskcat_v[decile_score >= 1 & decile_score <=3] <- "LOW"
+risk$riskcat_v[decile_score >= 4 & decile_score <=7] <- "MEDIUM"
+risk$riskcat_v[decile_score >= 8 & decile_score <=10] <- "HIGH"
+detach(risk)
+
+##Calculate time in custody (original conviction). 
+risk$c_custody <- risk$c_jail_out - risk$c_jail_in
+
+##Calculate time in custody (recidivism)
+risk$r_custody <- risk$r_jail_out - risk$r_jail_in
+
+
+## Create separate datasets for recidivists and desisters
+recid <- subset(risk, recid != 0)
+desist <- subset(risk, recid == 0)   
+
+## Calculate time in custody for recidivism event
+recid$r_custody <- recid$r_jail_out - recid$r_jail_in
+
+
+## subset to include only those who recidivated. exclude those who had a risk assessment either one month before or after the arrest. 
+recid <- risk %>% 
+        filter(c_time_to_screen <= 30) %>%
+        filter(c_time_to_screen >= -30) %>%
+        filter(recid != 0) %>%
+        filter(c_charge_degree != "O") ## these do not result in jail time
+
+desist <- risk%>% 
+        filter(c_time_to_screen <= 30) %>%
+        filter(c_time_to_screen >= -30) %>%
+        filter(recid != 1) %>%
+        filter(c_charge_degree != "O") ## these do not result in jail time
+

@@ -1,0 +1,95 @@
+---
+title: "Risk Analysis"
+author: "Alissa Skog"
+date: "December 11, 2016"
+output: html_document
+---
+
+```
+```
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(stargazer)
+##filter risk data, brining desisters & recidivists back into the same dataset
+compas <- risk %>% 
+        filter(c_time_to_screen <= 30) %>%
+        filter(c_time_to_screen >= -30) %>%
+        filter(c_charge_degree != "O") ## these do not result in jail time
+
+
+## First plot by risk category and race/ethnicity, category & decile scores
+ggplot(data = compas, aes(x = riskcat, fill = race)) + geom_bar(stat="count") + xlab("Risk Category") + ylab("Defendants") + 
+  ggtitle("COMPAS Score by Ethnicity") + scale_fill_brewer(direction = -1)
+ggplot(data = compas, aes(x = decile_score, fill = race)) + geom_bar(stat="count") + xlab("Risk Category") + ylab("Defendants") + 
+  ggtitle("COMPAS Score by Ethnicity") + scale_fill_brewer(direction = -1)
+
+## Collapse for easier ability to read: Create 4 race/ethnicity categories
+compas$race[compas$race == "Asian" | compas$race == "Native American"] <- "Other"
+ggplot(data = compas, aes(x = riskcat, fill = race)) + geom_bar(stat="count") + xlab("Risk Category") + ylab("Defendants") + 
+  ggtitle("COMPAS Score by Ethnicity") + scale_fill_brewer(direction = -1)
+
+ggplot(data = compas, aes(x = decile_score, fill = race)) + geom_bar(stat="count") + xlab("Risk Category") + ylab("Defendants") + 
+  ggtitle("COMPAS Score by Ethnicity") + scale_fill_brewer(direction = -1)
+
+
+
+## Create a new column for false positive (rated high risk, didn't recidivate), false negative (rated low risk, did 
+## recidivate), or NA for all else. 
+outcome <- c("False Positive", "False Negative", "NA")
+compas$outcome <- ifelse(compas$riskcat == c("HIGH") & compas$recid== 0, outcome[1], 
+                       ifelse(compas$riskcat == "LOW" & compas$recid == 1, outcome[2], outcome[3]))
+
+## Plot false positives and then False Negatives by race
+
+ggplot(subset(compas, outcome %in% c("False Positive")), aes(x = race, y = outcome, color = race)) + geom_jitter() + 
+xlab("Race") + ylab("Outcome") + ggtitle("Distribution of False Positives") + scale_fill_brewer(direction = -1)
+
+ggplot(subset(compas, outcome %in% c("False Negative")), aes(x = race, y = outcome, color = race)) + geom_jitter() + 
+  xlab("Race") + ylab("Outcome") + ggtitle("Distribution of False Negatives") + scale_fill_brewer(direction = -1)
+
+## Comparing Decile Scores by race
+
+
+plot_AA <- ggplot(data = filter(compas, race == "African-American"), aes(ordered(decile_score))) + geom_bar() + labs(x = "Decile Score", y = "Count") + ggtitle("African American Decile Scores") + ylim(0, 580)
+plot_AA
+
+plot_W <- ggplot(data = filter(compas, race == "Caucasian"), aes(ordered(decile_score))) + geom_bar() + labs(x = "Decile Score", y = "Count") + ggtitle("White Decile Scores") + ylim(0, 580)
+plot_W
+
+plot_H <- ggplot(data = filter(compas, race == "Hispanic"), aes(ordered(decile_score))) + geom_bar() + labs(x = "Decile Score", y = "Count") + ggtitle("Hispanic Decile Scores") + ylim(0, 580)
+plot_H
+
+grid.arrange(plot_W, plot_AA, plot_H, ncol = 3)
+
+## Check decile score by race summary
+xtabs(~decile_score + race, data=compas)
+
+
+## Turn Age, Race, and Gender into factors so they can be used in the regression 
+compas_2 <- mutate(compas, crime_factor = factor(c_charge_degree)) %>%
+      mutate(age_factor = as.factor(agecat)) %>%
+      within(age_factor <- relevel(age_factor, ref = 1)) %>%
+      mutate(race_factor = factor(race)) %>%
+      within(race_factor <- relevel(race_factor, ref = 3)) %>%
+      mutate(gender_factor = factor(sex, labels= c("Female","Male"))) %>%
+      within(gender_factor <- relevel(gender_factor, ref = 2)) 
+
+## run a regression to see the effect of demographics on risk score [Note: was unable to figure out how to get the risk categories into factors]
+reg <- lm(decile_score ~ gender_factor + age_factor + race_factor + priors_count + recid + crime_factor, family = "binomial", data = compas_2)
+summary(reg)
+
+### run a regression on demographis on recidivsm
+compas_2$recid <- as.numeric(compas_2$recid)
+reg2 <- lm(recid ~ gender_factor + age_factor + race_factor + priors_count + crime_factor, family = "binomial", data = compas_2)
+summary(reg2)
+##Use stargazer for output
+stargazer(reg, reg2, type = "text", title="Descriptive Statistics", align = TRUE, out="table1.doc")
+
+```
+

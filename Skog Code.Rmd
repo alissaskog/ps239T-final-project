@@ -1,0 +1,198 @@
+---
+title: "FInal Project"
+author: "Alissa Skog"
+date: "November 28, 2016"
+output: html_document
+---
+
+Create a Wordcloud in R
+```{r}
+
+##  Set Directory
+setwd( "/Users/alissaskog/Dropbox/UC_Berkeley/PS239T/Final Project/compas-analysis-master/")
+
+##  load packages
+
+Clean the data
+```{r}
+library(dplyr)
+library(ggplot2)
+risk <- read.csv("compas-scores-two-year_a.csv", stringsAsFactors = FALSE, header = TRUE)
+
+## Chage date format so I can caldulate distance
+risk$c_offense_date <- as.Date(risk$c_offense_date, "%m/%d/%y")
+risk$r_arrest <- as.Date(risk$r_arrest, "%m/%d/%y")
+risk$screening_date <- as.Date(risk$screening_date, "%m/%d/%y")
+risk$compas_screening_date <- as.Date(risk$compas_screening_date, "%m/%d/%y")
+risk$c_jail_in <- as.Date(risk$c_jail_in, "%m/%d/%y")
+risk$c_jail_out <- as.Date(risk$c_jail_out, "%m/%d/%y")
+risk$r_jail_in <- as.Date(risk$r_jail_in, "%m/%d/%y")
+risk$r_jail_out <- as.Date(risk$r_jail_out, "%m/%d/%y")
+## Remove those without an initial risk score. Detrmine length of time between arrest and risk score date 
+risk$time_to_screen_c <- risk$compas_screening_date - risk$c_offense_date
+sum(is.na(risk$time_to_screen_c))  ## 1158 did not have screen upon initial arrst; drop those who were not screened for risk.
+risk <- risk[Reduce("&", data.frame(!sapply(risk$time_to_screen, is.na))),]
+
+## Determine if someone recidivated: calculate time between release from custody and rearrest. If >0, assume recidivated. Turn all NAs into zero. Create a dummy variable to indicate if someone recidivated or not
+risk$time_to_recid <- risk$r_arrest - risk$c_jail_out
+
+na.zero <- function(x) {     ## Create a function to turn NAs to zero 
+  x[is.na(x)] <- 0
+  return(x)
+}
+risk$time_to_recid <- na.zero(risk$time_to_recid) ## Replace NAs with zero
+risk$recid <- as.numeric(risk$time_to_recid >0)  #dummy variable
+
+## subset to include only those who recidivated
+
+recid <- risk %>% 
+        filter(time_to_screen_c <= 30) %>%
+        filter(time_to_screen_c >= -30) %>%
+        filter(recid != 0) %>%
+        filter(c_charge_degree != "O") 
+
+##Categorize crimes into specific types, both original crime and recidivism crime
+                                               
+                                    
+risk$crimetype_c <- ifelse(grepl("(batt|Batt)", risk$c_charge_desc), "Battery",
+                         ifelse(grepl("(Assault|assault)", risk$c_charge_desc), "Assault",
+                                ifelse(grepl("(pos|Pos)", risk$c_charge_desc), "Drug Posession",
+                                             ifelse(grepl("(robbery|Robbery)", risk$c_charge_desc), "Robbery",
+                                                    ifelse(grepl("(theft|Theft)", risk$c_charge_desc), "Theft",
+                                                           ifelse(grepl("(DUI|Driving Under)", risk$c_charge_desc), "DUI", 
+                                                                  ifelse(grepl("(sex|Sex|prost|Prost)", risk$c_charge_desc), "Sex", 
+                                                                         ifelse(grepl("(Burg|burg)", risk$c_charge_desc), "Burglary", "Other"))))))))
+                                       
+  
+      
+risk$crimetype_r <- ifelse(grepl("(batt|Batt)", risk$r_crime), "Battery",
+                         ifelse(grepl("(Assault|assault)", risk$r_crime), "Assault",
+                                ifelse(grepl("(pos|Pos)", risk$r_crime), "Drug Posession",
+                                             ifelse(grepl("(robbery|Robbery)", risk$r_crime), "Robbery",
+                                                    ifelse(grepl("(theft|Theft)", risk$r_crime), "Theft",
+                                                           ifelse(grepl("(DUI|Driving Under)", risk$r_crime), "DUI", 
+                                                                  ifelse(grepl("(Sex|sex|pros|Pros)", risk$r_crime), "Sex", 
+                                                                         ifelse(grepl("(Burg|burg)", risk$r_crime), "Burglary", 
+                                                                                ifelse(grepl("(License|license)", risk$r_crime), "Susp. License",
+                                                                                       ifelse(grepl("0", risk$recid), "NA", "Other"))))))))))
+                                       
+
+## Create Age Categories
+
+attach(risk)
+risk$agecat[age >=50] <- "50+"
+risk$agecat[age >= 40 & age <50] <- "40-50"
+risk$agecat[age >=30 & age <40] <- "30-40"
+risk$agecat[age >=26 & age <30] <- "26-30"
+risk$agecat[age >=18 & age <26] <- "18-26"
+risk$agecat[age < 18] <- "Under 18"
+detach(risk)
+
+##Calculate time in custody (original conviction). 
+risk$c_custody <- risk$c_jail_out - risk$c_jail_in
+
+## Create separate datasets for recidivists and desisters
+recid <- subset(risk, recid != 0)
+desist <- subset(risk, recid == 0)   
+
+## Calculate time in custody for recidivism event
+recid$r_custody <- recid$r_jail_out - recid$r_jail_in
+
+
+## Create a table to compare original crimes to recidivsm crimes. Only for recidivists
+xtabs(~ crimetype_c + crimetype_r, data=recid)
+crosstab  <- addmargins(xtabs(~ crimetype_c + crimetype_r, data=recid))
+crosstab
+
+
+
+
+
+
+
+plot(x=density(x=recid$time_to_recid, bw=.5, na.rm=))
+
+
+library(ggplot2)
+library(reshape2)
+library(plyr)
+density <- ggplot(recid, aes(x=time_to_recid_m, color = race)) + geom_density(alpha=0.2) + xlab("Months") + ylab("Density") + ggtitle("Time to Failure") + xlim(0, 48)
+density
+density2 <- ggplot(recid, aes(x=time_to_recid_m, color = c_charge_degree)) + geom_density(alpha=0.2) + xlab("Months") + ylab("Density") + ggtitle("Time to Failure") + xlim(0, 48)
+density2
+
+
+  
+
+
+p1 <- ggplot(data = battery, aes(x=c_charge_desc)) + geom_density() +
+  geom_density(data = theft, fill = "purple") +
+  geom_density(data=drug_pos, fill = "green") + 
+  geom_density(data=sex, fill = "blue") + 
+  labs(title = "Distribution by Crime Type") +
+  labs(y="Density") +
+  labs(x = "Crime Type")
+p1
+
+
+
+battery <- subset(recid, c_charge_desc %in% c("Battery", "Felony Battery", "Batter on a Person Over 65", "Felony Battery w/ Prior Convict", "Felony Battery"))
+theft <- subset(recid, c_charge_desc %in% c("Grand Theft in the 3rd Degree", ))
+```
+## WORD CLOUD
+
+```{r}
+
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(dplyr)
+
+##  Read-in CSV
+risk <- read.csv("compas-scores-two-year_a.csv", stringsAsFactors = FALSE, header = TRUE)
+##  Simplify Text for orginal.
+currentCorpus <- Corpus(VectorSource(risk$c_charge_desc)) 
+dtm_c <- DocumentTermMatrix(c(currentCorpus),
+           control = list(tolower = TRUE,
+                          removePunctuation = TRUE,
+                          removeNumbers = TRUE,
+                          stopwords = TRUE))
+
+##  Simplify Text for recidivism crimes-- Often, one would want to stem the words used (to take down to the root), but using it resulted in strange words (i.e. Battery was turned into batteri)
+recidCorpus <- Corpus(VectorSource(c(risk$r_charge_desc, risk$vr_charge_desc))) 
+dtm_r <- DocumentTermMatrix(c(recidCorpus),
+           control = list(tolower = TRUE,
+                          removePunctuation = TRUE,
+                          removeNumbers = TRUE,
+                          stopwords = TRUE))
+
+## Determine the most frequent words
+freq_c <- colSums(as.matrix(dtm_c))
+ord_c <- order(freq_c)
+freq_c[tail(ord_c)]
+
+freq_c <- sort(colSums(as.matrix(dtm_c)),decreasing=TRUE)
+head(freq_c)
+
+freq_r <- colSums(as.matrix(dtm_r))
+ord_r <- order(freq_r)
+freq_r[tail(ord_r)]
+
+freq_r <- sort(colSums(as.matrix(dtm_r)),decreasing=TRUE)
+head(freq_r)
+
+## Step Five: Create a Word Cloud
+par(mfrow=c(1,2))
+wordcloud(names(freq_c), freq_c, min.freq = 30, max.words=60, scale = c(8, .2), rot.per = 0.15, random.order = FALSE, random.color = FALSE, colors=brewer.pal(8, "Dark2"))
+
+wordcloud(names(freq_r), freq_r, min.freq = 30, max.words=50, scale = c(8, .2), rot.per = 0.15, random.order = FALSE, random.color = FALSE, colors=brewer.pal(7, "Dark2"))
+
+
+  
+
+
+
+```
+
+
+

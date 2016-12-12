@@ -1,0 +1,49 @@
+---
+title: "02 Recid Analysis"
+author: "Alissa Skog"
+date: "December 11, 2016"
+output: html_document
+---
+
+```{r}
+
+library(ggplot2)
+library(reshape2)
+library(grid)
+library(gridExtra)
+library(stargazer)
+## Find Percentage of Recidivists
+mean(risk$recid)
+
+## Create a table to compare original crimes to recidivsm crimes. Only for recidivists
+crime_comp <- xtabs(~ crimetype_c + crimetype_r, data=recid)
+crime_comp <- as.matrix(round(prop.table(crime_comp), digits = 3))
+write.csv(crime_comp, file = "crime.csv")
+
+
+## What are the breakdowns of crime type, based on success or failure?
+dat <- data.frame(table(risk$recid, risk$crimetype_c))
+names(dat) <- c("Recid1", "Crime", "Count")
+ggplot(data = dat, aes(x=Recid1, y=Count, fill=Crime)) + geom_bar(stat = "identity") + labs(x = "Recidivate, Y/N", y = "Count", col="Orig. Crime") + ggtitle("Outcomes by Crime Type")
+
+## Create graphs to see the time which failure occurs, by crime type
+density_3mos <- ggplot(recid, aes(x=time_to_recid/30, color = crimetype_c)) + geom_density(alpha=0.2) + labs(x="Months", y= "Density", col="Orig. Crime") + ggtitle("Time to Failure") + xlim(0, 3)
+density_3mos
+density_12mos <- ggplot(recid, aes(x=time_to_recid/30, color = crimetype_c)) + geom_density(alpha=0.2) + labs(x="Months", y= "Density", col="Orig. Crime") + ggtitle("Time to Failure by Crime Type") + xlim(0, 12)
+density_12mos
+ggsave("12mos.pdf")
+
+## Let's look at recidivism types for sex crimes and child assault, as these are two that are often of most concern
+
+sex <- ggplot(data = filter(recid, crimetype_c =="Sex"), aes(ordered(crimetype_r))) + geom_bar() + xlab("Recidvivism Event") + ylim(0,8) + ggtitle("Sex Crimes: Recidivsm")
+child <- ggplot(data = filter(recid, crimetype_c =="Child Assault"), aes(ordered(crimetype_r))) + geom_bar() + xlab("Recidvivism Event") + ylim(0,8)  + ggtitle("Child Assault: Recidivsm")
+grid.arrange(sex, child, ncol=2)
+
+
+
+```
+
+
+
+```
+.
